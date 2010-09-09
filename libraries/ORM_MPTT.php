@@ -1177,6 +1177,54 @@ abstract class ORM_MPTT_Core extends ORM
 
 		return parent::select_list($key, $val);
 	}
+
+	/**
+	 * Overloads the select_list method to
+	 * support indenting. But this one limits as well, so the descendant won't be shown.
+	 *
+	 * @param $key string First table column
+	 * @param $val string Second table column
+	 * @param $indent string Use this character for indenting
+	 * @return void
+	 **/
+	public function select_list_limited($key = NULL, $val = NULL, $indent = NULL)
+	{
+		if (is_string($indent))
+		{
+			if ($key === NULL)
+			{
+				// Use the default key
+				$key = $this->primary_key;
+			}
+	
+			if ($val === NULL)
+			{
+				// Use the default value
+				$val = $this->primary_val;
+			}
+			
+			$basedepth = $this->level();
+			if ($this->has_children())
+			{
+				$this->db->where($this->left_column . ' <', $this->left());
+				$this->db->orwhere($this->right_column . ' >', $this->right());
+				$this->db->orwhere($this->scope_column . ' !=', $this->scope());
+			}
+			
+			$result = $this->load_result(TRUE);
+			
+			
+			$array = array();
+			foreach ($result as $row)
+			{
+				$array[$row->$key] = str_repeat($indent, intval($row->{$this->level_column})).$row->$val;
+			}
+			
+			return $array;
+		}
+
+		return parent::select_list($key, $val);
+	}
 	
 
 	
