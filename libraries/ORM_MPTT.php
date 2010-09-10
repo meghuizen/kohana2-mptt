@@ -63,6 +63,13 @@ abstract class ORM_MPTT_Core extends ORM
 	 * @var boolean
 	 **/
 	protected $locked = false;
+	
+	/**
+	 * Stores the old parent_id on load, so it can be used on save function to trigger the move to another parent.
+	 * 
+	 * @var int
+	 */
+	protected $_old_parentid = NULL;
 
 	/**
 	 * Constructor. Sets the left_column as default orderby, if not already set.
@@ -73,7 +80,7 @@ abstract class ORM_MPTT_Core extends ORM
 	public function __construct($id = NULL)
 	{
 		if (empty($this->sorting))
-			$this->sorting = array($this->left_column => 'ASC');
+			$this->sorting = array($this->scope_column => 'ASC', $this->left_column => 'ASC');
 		
 		parent::__construct($id);
 	}
@@ -86,6 +93,7 @@ abstract class ORM_MPTT_Core extends ORM
 	 **/
 	protected function lock()
 	{
+		return true;
 		if (!$this->locked) 
 		{
 			$this->db->query('LOCK TABLE '.$this->table_name.' WRITE');
@@ -101,6 +109,7 @@ abstract class ORM_MPTT_Core extends ORM
 	 **/
 	protected function unlock()
 	{
+		return true;
 		if ($this->locked)
 		{
 			$this->db->query('UNLOCK TABLES');
@@ -360,7 +369,8 @@ abstract class ORM_MPTT_Core extends ORM
 						->where($this->right_column. ' <=', $this->right())
 						->where($this->scope_column, $this->scope())
 						->orderby($this->left_column, $direction);
-						
+		
+		//orwhere is tricky here so I use a creative way of and where
 		if ($with_self) {
 			$result->where($this->level_column. ' >=', intval($this->level()));
 			$result->where($this->level_column. ' <=', intval($this->level()) + 1);
@@ -556,10 +566,14 @@ abstract class ORM_MPTT_Core extends ORM
 	 * @access protected
 	 * @param $start integer Start position.
 	 * @param $size integer The size of the gap (default is 2)
+	 * @param $scope integer [optional] The scope of the tree on which to create the space
 	 * @return void
 	 **/
-	protected function create_space($start, $size = 2)
+	protected function create_space($start, $size = 2, $scope = NULL)
 	{
+		if (empty($scope))
+			$scope = intval($this->scope());
+		
 		// Update the left values.
 		/*$this->db->update(
 				$this->table_name,
@@ -568,7 +582,7 @@ abstract class ORM_MPTT_Core extends ORM
 				),
 				array(
 					$this->left_column . ' >= ' => intval($start),
-					$this->scope_column => $this->scope()
+					$this->scope_column => $scope
 				)
 		);*/
 		$this->db->query(
@@ -578,7 +592,7 @@ abstract class ORM_MPTT_Core extends ORM
 					.$this->left_column.' = '.$this->left_column.' + '.intval($size)
 				.' WHERE '
 					.$this->left_column.' >= '.intval($start)
-					.' AND ' . $this->scope_column . ' = ' . intval($this->scope())
+					.' AND ' . $this->scope_column . ' = ' . $scope
 				);
 
 		// Now the right.
@@ -589,7 +603,7 @@ abstract class ORM_MPTT_Core extends ORM
 				),
 				array(
 					$this->right_column . ' >= ' => intval($start),
-					$this->scope_column => $this->scope()
+					$this->scope_column => $scope
 				)
 		);*/
 		$this->db->query(
@@ -599,7 +613,7 @@ abstract class ORM_MPTT_Core extends ORM
 					.$this->right_column.' = '.$this->right_column.' + '.intval($size)
 				.' WHERE '
 					.$this->right_column.' >= '.intval($start)
-					.' AND ' . $this->scope_column . ' = ' . intval($this->scope())
+					.' AND ' . $this->scope_column . ' = ' . $scope
 				);
 	}
 	
@@ -610,10 +624,14 @@ abstract class ORM_MPTT_Core extends ORM
 	 * @access protected
 	 * @param $start integer Start position.
 	 * @param $size integer The size of the gap (default is 2)
+	 * @param $scope integer [optional] The scope of the tree on which to remove the space
 	 * @return void
 	 **/
-	protected function delete_space($start, $size = 2)
+	protected function delete_space($start, $size = 2, $scope = NULL)
 	{
+		if (empty($scope))
+			$scope = intval($this->scope());
+		
 		// Update the left values.
 		/*$this->db->update(
 				$this->table_name,
@@ -622,7 +640,7 @@ abstract class ORM_MPTT_Core extends ORM
 				),
 				array(
 					$this->left_column . ' >= ' => intval($start),
-					$this->scope_column => $this->scope()
+					$this->scope_column => $scope
 				)
 		);*/
 		$this->db->query(
@@ -632,7 +650,7 @@ abstract class ORM_MPTT_Core extends ORM
 					.$this->left_column.' = '.$this->left_column.' - '.intval($size)
 				.' WHERE '
 					.$this->left_column.' >= '.intval($start)
-					.' AND ' . $this->scope_column . ' = ' . intval($this->scope())
+					.' AND ' . $this->scope_column . ' = ' . $scope
 				);
 
 		// Now the right.
@@ -643,7 +661,7 @@ abstract class ORM_MPTT_Core extends ORM
 				),
 				array(
 					$this->right_column . ' >= ' => intval($start),
-					$this->scope_column => $this->scope()
+					$this->scope_column => $scope
 				)
 		);*/
 		$this->db->query(
@@ -653,7 +671,7 @@ abstract class ORM_MPTT_Core extends ORM
 					.$this->right_column.' = '.$this->right_column.' - '.intval($size)
 				.' WHERE '
 					.$this->right_column.' >= '.intval($start)
-					.' AND ' . $this->scope_column . ' = ' . intval($this->scope())
+					.' AND ' . $this->scope_column . ' = ' . $scope
 				);
 	}
 	
@@ -775,7 +793,7 @@ abstract class ORM_MPTT_Core extends ORM
 	}
 	
 	/**
-	 * Moves the node to another place in the tree.
+	 * Moves the node to another place in the tree. Able to move between scopes.
 	 *
 	 * @param $new_left integer The value for the new left.
 	 * @return boolean
@@ -803,6 +821,9 @@ abstract class ORM_MPTT_Core extends ORM
 		$target->reload();
 		$this->reload();
 		
+		// we also move between scopes
+		$targetscope = $target->scope();
+		$currentscope = $this->scope();
 		// Catch any database or other exceptions and unlock
 		try
 		{
@@ -818,18 +839,19 @@ abstract class ORM_MPTT_Core extends ORM
 				return FALSE;
 			}
 			
-			$left_offset = ( ($use_left_column === TRUE) ? $target->left() : $target->right() ) + $left_offset;
+			$left_offset = ( ($use_left_column) ? $target->left() : $target->right() ) + $left_offset;
 			$level_offset = $target->level() - $this->level() + $level_offset;
 			$size = $this->size();
 			
 			// Now we create a gap to place this item in that gap
-			$this->create_space($left_offset, $size);
+			$this->create_space($left_offset, $size, $targetscope);
 			
 			// Why??
 			$this->reload();
 			
 			$offset = ($left_offset - $this->left());
 			
+			// Update the childeren for the new place in the tree
 			//the SET's in this query cannot be right by the syntax of it
 			/*$this->db->update(
 					$this->table_name,
@@ -841,7 +863,7 @@ abstract class ORM_MPTT_Core extends ORM
 					array(
 						$this->left_column . ' >=' => $this->left(),
 						$this->right_column . ' <=' => $this->right(),
-						$this->scope_column => $this->scope()
+						$this->scope_column => $targetscope
 					)
 			);*/
 			$this->db->query(
@@ -849,15 +871,27 @@ abstract class ORM_MPTT_Core extends ORM
 					' SET '
 						.$this->left_column.' = '.$this->left_column.' + '.intval($offset) . ', '
 						.$this->right_column.' = '.$this->right_column.' + '.intval($offset) . ', '
-						.$this->level_column.' = '.$this->level_column.' + '.intval($level_offset)
+						.$this->level_column.' = '.$this->level_column.' + '.intval($level_offset) . ', '
+						.$this->scope_column.' = '.$targetscope
 					.' WHERE '
 						.$this->left_column.' >= '.$this->left()
-						.$this->right_column.' <= '.$this->right()
-						.' AND ' . $this->scope_column . ' = ' . intval($this->scope()));
+						.' AND ' . $this->right_column.' <= '.$this->right()
+						.' AND ' . $this->scope_column . ' = ' . intval($targetscope)
+			);
 
-			
 			// Now we close the old gap
-			$this->delete_space($this->left(), $size);
+			$this->delete_space($this->left(), $size, $currentscope);
+			
+			//after the update reload this
+			$this->reload();
+			
+			// Change MPTT values to new place in the tree
+			if ($level_offset == 1)
+				$this->{$this->parent_column} = $target->primary_key();
+			
+			/*$this->{$this->level_column} += intval($level_offset); // Gets possibly a new level
+			$this->{$this->left_column} = $left_offset;
+			$this->{$this->right_column} = $left_offset + 1;*/
 		}
 		catch (Exception $e) 
 		{
@@ -871,6 +905,9 @@ abstract class ORM_MPTT_Core extends ORM
 		if ($parent_id != $this->parent_id()) 
 		{
 			$this->{$this->parent_column} = $parent_id;
+			$this->{$this->scope_column} = $targetscope;
+			$this->_old_parentid = $parent_id; // So the following function will be handled correctly
+			
 			$this->save();
 		}
 		
@@ -1052,6 +1089,22 @@ abstract class ORM_MPTT_Core extends ORM
 	}
 	
 	/**
+	 * Loads an array of values into into the current object. Overloads to store old parent_id so it can detect parent changes.
+	 *
+	 * @chainable
+	 * @param   array  values to load
+	 * @return  ORM
+	 */
+	public function load_values(array $values)
+	{
+		$returnval = parent::load_values($values);
+		
+		$this->_old_parentid = $this->parent_id();
+		
+		return $returnval;
+	}
+	
+	/**
 	 * Overloaded save method
 	 *
 	 * @access public
@@ -1061,7 +1114,12 @@ abstract class ORM_MPTT_Core extends ORM
 	{
 		if ($this->loaded === TRUE)
 		{
-			return parent::save();
+			if ($this->_old_parentid != $this->parent_id()) {
+				$this->_old_parentid = $this->parent_id(); //so the following function will be handled correctly
+				
+				return $this->move_to_last_child($this->parent_id());
+			} else
+				return parent::save();
 		} elseif (intval($this->parent_id()) <= 0) { // if parent_id is empty or not a number and does not already exists, save as new root
 			return $this->save_as_root();
 		} else {
@@ -1162,6 +1220,8 @@ abstract class ORM_MPTT_Core extends ORM
 				$val = $this->primary_val;
 			}
 			
+			$this->db->orderby(array($this->scope_column => 'ASC', $this->left_column => 'ASC'));
+			
 			$result = $this->load_result(TRUE);
 			
 			$basedepth = $this->level();
@@ -1180,7 +1240,7 @@ abstract class ORM_MPTT_Core extends ORM
 
 	/**
 	 * Overloads the select_list method to
-	 * support indenting. But this one limits as well, so the descendant won't be shown.
+	 * support indenting. But this one limits as well, so the descendant and itself won't be shown.
 	 *
 	 * @param $key string First table column
 	 * @param $val string Second table column
@@ -1204,6 +1264,7 @@ abstract class ORM_MPTT_Core extends ORM
 			}
 			
 			$basedepth = $this->level();
+			$this->db->where($this->primary_key . ' !=', $this->primary_key());
 			if ($this->has_children())
 			{
 				$this->db->where($this->left_column . ' <', $this->left());
@@ -1211,6 +1272,7 @@ abstract class ORM_MPTT_Core extends ORM
 				$this->db->orwhere($this->scope_column . ' !=', $this->scope());
 			}
 			
+			$this->db->orderby(array($this->scope_column => 'ASC', $this->left_column => 'ASC'));
 			$result = $this->load_result(TRUE);
 			
 			
