@@ -80,7 +80,7 @@ abstract class ORM_MPTT_Core extends ORM
 	public function __construct($id = NULL)
 	{
 		if (empty($this->sorting))
-			$this->sorting = array($this->scope_column => 'ASC', $this->left_column => 'ASC');
+			$this->sorting = array($this->scope_column => 'ASC', $this->left_column => 'ASC', $this->primary_key => 'ASC');
 		
 		parent::__construct($id);
 	}
@@ -301,7 +301,8 @@ abstract class ORM_MPTT_Core extends ORM
 		return self::factory($this->object_name)
 						->where(array($this->parent_column => NULL))
 						->orderby($this->scope_column, 'ASC')
-						->orderby($this->left_column, 'ASC')->find_all();
+						->orderby($this->left_column, 'ASC')
+						->orderby($this->primary_key, 'ASC')->find_all();
 	}
 	
 	/**
@@ -340,7 +341,7 @@ abstract class ORM_MPTT_Core extends ORM
 		$result = self::factory($this->object_name)
 						->where($this->left_column. ' <' . $suffix, $this->left())
 						->where($this->right_column. ' >' . $suffix, $this->right())
-						->where($this->scope_column. ' =', $this->scope())
+						->where($this->scope_column, $this->scope())
 						->orderby($this->left_column, $direction);
 		
 		if (!$with_root_nodes)
@@ -370,7 +371,7 @@ abstract class ORM_MPTT_Core extends ORM
 						->where($this->scope_column, $this->scope())
 						->orderby($this->left_column, $direction);
 		
-		//orwhere is tricky here so I use a creative way of and where
+		//orwhere is tricky here so I use a creative way of 'AND WHERE'
 		if ($with_self) {
 			$result->where($this->level_column. ' >=', intval($this->level()));
 			$result->where($this->level_column. ' <=', intval($this->level()) + 1);
@@ -456,7 +457,7 @@ abstract class ORM_MPTT_Core extends ORM
 	public function leaves($direct_children_only = TRUE, $direction = 'ASC', $limit = NULL)
 	{
 		$result = self::factory($this->object_name)
-						->where($this->left_column. ' =', $this->right_column . ' - 1', FALSE)
+						->where($this->left_column, $this->right_column . ' - 1', FALSE)
 						->where($this->scope_column, $this->scope())
 						->where($this->left_column. ' >', $this->left())
 						->where($this->right_column. ' <', $this->right())
@@ -481,7 +482,8 @@ abstract class ORM_MPTT_Core extends ORM
 	public function fulltree($use_scope = FALSE, $scope = NULL, $max_depth = NULL) {
 		$result = self::factory($this->object_name)
 						->orderby($this->scope_column, 'ASC')
-						->orderby($this->left_column, 'ASC');
+						->orderby($this->left_column, 'ASC')
+						->orderby($this->primary_key, 'ASC');
 		
 		if ($use_scope)
 		{
@@ -872,11 +874,11 @@ abstract class ORM_MPTT_Core extends ORM
 						.$this->left_column.' = '.$this->left_column.' + '.intval($offset) . ', '
 						.$this->right_column.' = '.$this->right_column.' + '.intval($offset) . ', '
 						.$this->level_column.' = '.$this->level_column.' + '.intval($level_offset) . ', '
-						.$this->scope_column.' = '.$targetscope
+						.$this->scope_column.' = '.intval($targetscope)
 					.' WHERE '
 						.$this->left_column.' >= '.$this->left()
 						.' AND ' . $this->right_column.' <= '.$this->right()
-						.' AND ' . $this->scope_column . ' = ' . intval($targetscope)
+						.' AND ' . $this->scope_column . ' = ' . intval($currentscope)
 			);
 
 			// Now we close the old gap
@@ -941,6 +943,19 @@ abstract class ORM_MPTT_Core extends ORM
 		}
 		
 		return $scope;
+	}
+	
+	public function get_nodes_where($where, $limit = NULL) {
+		$result = self::factory($this->object_name)
+						->where($where)
+						->orderby($this->scope_column, 'ASC')
+						->orderby($this->left_column, 'ASC')
+						->orderby($this->primary_key, 'ASC');
+		
+		if (!empty($limit))
+			$result->limit($limit);
+		
+		return $result->find_all();
 	}
 	
 	/**
@@ -1450,6 +1465,59 @@ abstract class ORM_MPTT_Core extends ORM
 					return FALSE;
 			}
 		}
+		
+		return TRUE;
+	}
+	
+	public function rebuild_tree() 
+	{
+		$rootnodes = $this->roots();
+		
+		if (!empty($rootnodes) && count($rootnodes) > 0)
+		foreach ($rootnodes as $rootnode)
+		{
+			$counter = 0;
+			
+			$this->rebuild_node($rootnode, $counter, 0);
+		}
+		
+		return TRUE;
+	}
+	
+	public function rebuild_node(&$node, &$counter = null, $level = null)
+	{
+		if (empty($counter) || intval($counter) <= 0)
+			$counter = 0;
+		if (empty($level) || intval($level) <= 0)
+			$level = 0;
+		if (!($node instanceof $this))
+			$node = self::factory($this->object_name, $node);
+		
+		// Only existing nodes can be rebuild
+		if (!$node->loaded)
+			return FALSE;
+		
+		$counter++;
+		$level++;
+		
+		$childnodes = $this->get_nodes_where(array(
+											$this->parent_column => $node->primary_key(),
+											$this->scope_column => $node->scope()
+										));
+		
+		$node->{$this->left_column} = $counter;
+		$node->{$this->level_column} = $level;
+		
+		if (!empty($childnodes) && count($childnodes) > 0)
+		foreach ($childnodes as $childnode)
+		{
+			$this->rebuild_node($childnode, $counter, $level);
+		}
+		
+		$counter++;
+		
+		$node->{$this->right_column} = $counter;
+		$node->save();
 		
 		return TRUE;
 	}
