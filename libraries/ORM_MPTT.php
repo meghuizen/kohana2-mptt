@@ -1203,6 +1203,7 @@ abstract class ORM_MPTT_Core extends ORM
 											$this->scope_column => $this->scope()
 										));
 		
+		// recursive. This is not efficient, but can be overridden.
 		if (!empty($childnodes) && count($childnodes) > 0)
 		foreach ($childnodes as $childnode)
 		{
