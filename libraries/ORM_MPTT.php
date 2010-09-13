@@ -804,7 +804,7 @@ abstract class ORM_MPTT_Core extends ORM
 		$this->{$this->parent_column} = $target->primary_key();
 		
 		//create a space the get this node as child node of the target
-		$this->create_space($this->left());
+		$this->create_space($this->left(), 2, $target->scope());
 		
 		$returnval = $this;
 		
@@ -815,7 +815,7 @@ abstract class ORM_MPTT_Core extends ORM
 		catch (Exception $e)
 		{
 			// We had a problem saving, make sure we clean up the tree
-			$this->delete_space($this->left());
+			$this->delete_space($this->left(), 2, $target->scope());
 			
 			$this->unlock();
 			
@@ -1186,60 +1186,46 @@ abstract class ORM_MPTT_Core extends ORM
 	/**
 	 * Removes a node and descendants if specified.
 	 *
-	 * $
-	 *
 	 * @access public
-	 * @param $descendants boolean Remove the descendants?
 	 * @return void
 	 **/
-	public function delete($descendants = TRUE)
+	public function delete($id = NULL)
 	{
 		// Lock the table
 		$this->lock();
 		
-		// The descendants need to be removed.
-		if ($descendants)
+		// Only existing nodes can be deleted
+		if (!$this->loaded)
+			return FALSE;
+		
+		$childnodes = $this->get_nodes_where(array(
+											$this->parent_column => $this->primary_key(),
+											$this->scope_column => $this->scope()
+										));
+		
+		if (!empty($childnodes) && count($childnodes) > 0)
+		foreach ($childnodes as $childnode)
 		{
-			// Delete the node and it's descendants.
-			try
-			{
-				//TODO: better is to loop through objects and call delete on the seperately, because then you could override this function
-				$this->db
-					->where(array(
-						$this->left_column . ' >=' => intval($this->left()),
-						$this->right_column . ' <=' => intval($this->right()),
-						$this->scope_column => intval($this->scope())
-					))
-					->delete($this->table_name);
-				
-				// Close the gap
-				$this->delete_space($this->left(), $this->size());
-			} 
-			catch (Exception $e)
-			{
-				//first unlock the table
-				$this->unlock();
-				
-				throw $e;
-			}
-		}
-		// The descendants need to be moved up a level.
-		else
-		{
-			/* Im sure theres a better way to do this...
-			 * But i can't think of a good reason to do this,
-			 * so no time or effort is being put into it!
-			 * Patches accepted :P */
-			
-			//TODO: this does not work when this node has no NEXT sibling or no sibling at all
-			$children = $this->children('DESC');
-			
-			foreach ($children as $child)
-			{
-				$child->move_to_next_sibling($this);
-			}
-			
 			$this->delete();
+		}
+		
+		$left = $this->left();
+		$size = $this->size();
+		$scope = $this->scope();
+		
+		try
+		{
+			parent::delete();
+			
+			// Close the gap
+			$this->delete_space($left, $size, $scope);
+		}
+		catch (Exception $e)
+		{
+			//first unlock the table
+			$this->unlock();
+			
+			throw $e;
 		}
 
 		// Unlock the table.
