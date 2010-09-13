@@ -690,6 +690,12 @@ abstract class ORM_MPTT_Core extends ORM
 		if ($this->loaded === TRUE && $this->is_root())
 			return FALSE;
 		
+		// Increment next scope
+		if (empty($scope))
+			$scope = self::get_next_scope();
+		elseif (! self::scope_available($scope))
+			return FALSE;
+		
 		$locked = false;
 		
 		//delete node space first
@@ -698,14 +704,42 @@ abstract class ORM_MPTT_Core extends ORM
 			$this->lock();
 			$locked = true;
 			
-			$this->delete_space($this->left(), $this->size());
+			$this->delete_space($this->left(), $this->size(), $this->scope());
+			
+			if ($this->has_children()) {
+				$level_offset = 1 - $this->level();
+				$offset = 1 - $this->left();
+				
+				// Update the childeren for the new place in the tree
+				//the SET's in this query cannot be right by the syntax of it
+				/*$this->db->update(
+						$this->table_name,
+						array(
+							$this->left_column .  ' = ' . $this->left_column . ' + ' . intval($offset),
+							$this->right_column .  ' = ' . $this->right_column . ' + ' . intval($offset),
+							$this->level_column . ' = ' . $this->level_column . ' + ' . intval($level_offset),
+							$this->scope_column . ' = ' . intval($scope)
+						),
+						array(
+							$this->left_column . ' >' => $this->left(),
+							$this->right_column . ' <' => $this->right(),
+							$this->scope_column => $this->scope()
+						)
+				);*/
+				$this->db->query(
+						'UPDATE '.$this->table_name.
+						' SET '
+							.$this->left_column.' = '.$this->left_column.' + '.intval($offset) . ', '
+							.$this->right_column.' = '.$this->right_column.' + '.intval($offset) . ', '
+							.$this->level_column.' = '.$this->level_column.' + '.intval($level_offset) . ', '
+							.$this->scope_column.' = '.intval($scope)
+						.' WHERE '
+							.$this->left_column.' > '.$this->left()
+							.' AND ' . $this->right_column.' < '.$this->right()
+							.' AND ' . $this->scope_column . ' = ' . intval($this->scope())
+				);
+			}
 		}
-		
-		// Increment next scope
-		if (empty($scope))
-			$scope = self::get_next_scope();
-		elseif (! self::scope_available($scope))
-			return FALSE;
 		
 		$this->{$this->scope_column} = $scope;
 		$this->{$this->level_column} = 1;
@@ -860,7 +894,8 @@ abstract class ORM_MPTT_Core extends ORM
 					array(
 						$this->left_column .  ' = ' . $this->left_column . ' + ' . intval($offset),
 						$this->right_column .  ' = ' . $this->right_column . ' + ' . intval($offset),
-						$this->level_column . ' = ' . $this->level_column . ' + ' . intval($level_offset)
+						$this->level_column . ' = ' . $this->level_column . ' + ' . intval($level_offset),
+						$this->scope_column .' = ' . intval($targetscope)
 					),
 					array(
 						$this->left_column . ' >=' => $this->left(),
@@ -1132,7 +1167,10 @@ abstract class ORM_MPTT_Core extends ORM
 			if ($this->_old_parentid != $this->parent_id()) {
 				$this->_old_parentid = $this->parent_id(); //so the following function will be handled correctly
 				
-				return $this->move_to_last_child($this->parent_id());
+				if (empty($this->_old_parentid))
+					return $this->save_as_root();
+				else
+					return $this->move_to_last_child($this->parent_id());
 			} else
 				return parent::save();
 		} elseif (intval($this->parent_id()) <= 0) { // if parent_id is empty or not a number and does not already exists, save as new root
