@@ -5,7 +5,7 @@ Based on the Kohana 2 original ORM_MPTT in combination with the Kohana 3 ORM_MPT
 Works a lot better then the current version for Kohana 2, because that one has functions with a lot of bugs. I also want to make an API compatible version for Kohana 3 of this.
 
 
-It's not fully API compatible with the Kohana 3 version, because of some API thinks I didn't agree on on Kohana 3 ORM_MPTT. But most of the part is.
+It's not fully API compatible with the Kohana 3 version, because of some API things I didn't agree on with Kohana 3 ORM_MPTT. But most of the part is.
 
 This is working and tested code. And if by any means, your tree fails, you can use rebuild_tree() to rebuild the whole tree.
 
